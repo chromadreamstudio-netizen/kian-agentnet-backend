@@ -132,8 +132,8 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # قائمة أحدث النماذج الذكية والمستقرة للاستخدام الاحترافي
-        candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        # استخدام أحدث نموذج موثوق ومستقر في مكتبة google-genai
+        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         
         response = None
         used_model = None
