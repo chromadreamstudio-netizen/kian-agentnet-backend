@@ -132,25 +132,13 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        client = genai.Client(api_key=GEMINI_KEY)
+        # استخدام النموذج الموصى به رسمياً من خطأ النظام الأخير
+        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash']
         
-        # === جلب النماذج المتاحة تلقائياً وديناميكياً من حسابك لمنع أخطاء 404 نهائياً ===
-        candidate_models = []
-        try:
-            for m in client.models.list():
-                if "generateContent" in getattr(m, "supported_generation_methods", []):
-                    model_id = m.name.replace("models/", "")
-                    candidate_models.append(model_id)
-        except Exception as list_err:
-            print(f"[Kian AgentNet] Warning: Could not list models dynamically: {list_err}")
-            
-        # قائمة احتياطية في حال تعذر جلب القائمة تلقائياً
-        if not candidate_models:
-            candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash']
-            
         response = None
         used_model = None
         last_exception = None
+        client = genai.Client(api_key=GEMINI_KEY)
 
         for model_name in candidate_models:
             for attempt in range(2): 
@@ -163,13 +151,19 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
                     if res and res.text:
                         response = res
                         used_model = model_name
-                        print(f"[Kian AgentNet] Success with dynamically discovered model: {used_model}")
+                        print(f"[Kian AgentNet] Success with model: {used_model} on attempt {attempt+1}")
                         break
                 except Exception as model_err:
                     last_exception = model_err
                     err_str = str(model_err)
-                    print(f"[Kian AgentNet] Model {model_name} failed: {err_str}")
-                    break # جرب النموذج التالي مباشرة إذا فشل الحالي
+                    print(f"[Kian AgentNet] {model_name} failed (Attempt {attempt+1}): {err_str}")
+                    
+                    if "503" in err_str:
+                        print("[Kian AgentNet] High demand detected (503). Waiting 2 seconds then retrying...")
+                        time.sleep(2)
+                        continue
+                    else:
+                        break 
             
             if response:
                 break 
@@ -178,7 +172,7 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
             return {
                 "status": "gateway_error",
                 "error_code": "ALL_MODELS_UNAVAILABLE",
-                "message": f"جميع النماذج فشلت أو غير متاحة. آخر خطأ: {str(last_exception)}"
+                "message": f"جميع النماذج مشغولة حالياً. آخر خطأ: {str(last_exception)}"
             }
         
         structured_payload = json.loads(response.text)
