@@ -132,8 +132,8 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # تصحيح تعريف المتغير ليكون candidate_models بدلاً من model_name
-        candidate_models = ['gemini-1.5-flash', 'gemini-1.5-pro']
+        # قائمة أحدث النماذج الذكية والمستقرة للاستخدام الاحترافي
+        candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
         
         response = None
         used_model = None
