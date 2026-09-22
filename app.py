@@ -133,7 +133,7 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         """
         
         # استخدام النماذج المستقرة والمدعومة رسمياً
-        candidate_models = ['gemini-1.5-flash', 'gemini-1.5-pro']
+        model_name = ['gemini-1.5-flash', 'gemini-1.5-pro']
         
         response = None
         used_model = None
