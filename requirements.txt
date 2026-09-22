@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+playwright
+beautifulsoup4
+supabase
+google-genai
+pydantic
