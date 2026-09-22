@@ -132,8 +132,8 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # استخدام النموذج الموصى به رسمياً من خطأ النظام الأخير
-        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash']
+        # استخدام النموذج المطلوب رسمياً من رسالة النظام
+        candidate_models = ['gemini-3.6-flash']
         
         response = None
         used_model = None
