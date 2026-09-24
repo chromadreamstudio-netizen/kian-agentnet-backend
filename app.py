@@ -91,8 +91,8 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API Key is missing. Please provide X-API-Key header.")
     
-    if GEMINI_KEY == "PUT_YOUR_GEMINI_KEY_HERE":
-        return {"status": "fatal_error", "message": "Please set your real Gemini API Key in app.py"}
+    if not GEMINI_KEY or GEMINI_KEY == "PUT_YOUR_GEMINI_KEY_HERE":
+        return {"status": "fatal_error", "message": "Please set your real GEMINI_API_KEY environment variable in Render."}
         
     try:
         key_res = supabase.table("api_keys").select("*").eq("api_key", x_api_key).eq("is_active", True).execute()
@@ -132,18 +132,17 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # قائمة النماذج التراتبية (تضمن استقرار الخدمة وتفادي أخطاء الضغط 503)
+        # النماذج الرسمية المستقرة في Google GenAI API
         candidate_models = [
-            'gemini-2.5-flash',
             'gemini-2.0-flash',
             'gemini-1.5-flash',
-            'gemini-3.8-flash',
-            'gemini-3.6-flash'
+            'gemini-1.5-pro',
+            'gemini-2.0-flash-lite'
         ]
         
         response = None
         used_model = None
-        last_exception = None
+        errors_log = []
         client = genai.Client(api_key=GEMINI_KEY)
 
         for model_name in candidate_models:
@@ -157,19 +156,18 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
                     if res and res.text:
                         response = res
                         used_model = model_name
-                        print(f"[Kian AgentNet] Success with model: {used_model} on attempt {attempt+1}")
+                        print(f"[Kian AgentNet] SUCCESS with model: {used_model}")
                         break
                 except Exception as model_err:
-                    last_exception = model_err
                     err_str = str(model_err)
-                    print(f"[Kian AgentNet] {model_name} failed (Attempt {attempt+1}): {err_str}")
+                    errors_log.append(f"{model_name} (Attempt {attempt+1}): {err_str}")
+                    print(f"[Kian AgentNet] {model_name} Error: {err_str}")
                     
                     if "503" in err_str:
-                        print("[Kian AgentNet] High demand detected (503). Waiting 2 seconds then retrying...")
                         time.sleep(2)
                         continue
                     else:
-                        break 
+                        break
             
             if response:
                 break 
@@ -178,7 +176,7 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
             return {
                 "status": "gateway_error",
                 "error_code": "ALL_MODELS_UNAVAILABLE",
-                "message": f"جميع النماذج مشغولة حالياً. آخر خطأ: {str(last_exception)}"
+                "message": f"تعذر الاتصال بجميع النماذج. تفاصيل المحاولات: {errors_log}"
             }
         
         structured_payload = json.loads(response.text)
