@@ -133,11 +133,12 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         """
         
         # قائمة النماذج المعتمدة رسمياً بالترتيب التنازلي مع دعم البدائل عند الضغط العالي
-        candidate_models = [
+         candidate_models = [
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
             'gemini-3.8-flash',
-            'gemini-3.7-flash',
-            'gemini-3.6-flash',
-            'gemini-3.5-flash'
+            'gemini-3.6-flash'
         ]
         
         response = None
