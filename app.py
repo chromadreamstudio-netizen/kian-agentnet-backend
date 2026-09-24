@@ -132,8 +132,8 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # قائمة النماذج المعتمدة رسمياً بالترتيب التنازلي مع دعم البدائل عند الضغط العالي
-         candidate_models = [
+        # قائمة النماذج التراتبية (تضمن استقرار الخدمة وتفادي أخطاء الضغط 503)
+        candidate_models = [
             'gemini-2.5-flash',
             'gemini-2.0-flash',
             'gemini-1.5-flash',
