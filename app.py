@@ -132,12 +132,12 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         - No markdown wrapping, no introductory text.
         """
         
-        # النماذج الرسمية المستقرة في Google GenAI API
+        # النماذج الإجبارية التي فرضتها جوجل بناءً على الخطأ 404 الأخير
         candidate_models = [
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-2.0-flash-lite'
+            'gemini-3.8-flash',
+            'gemini-3.6-flash',
+            'gemini-3.5-flash',
+            'gemini-3.5-flash-lite'
         ]
         
         response = None
@@ -146,7 +146,7 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         client = genai.Client(api_key=GEMINI_KEY)
 
         for model_name in candidate_models:
-            for attempt in range(2): 
+            for attempt in range(3): # زيادة المحاولات إلى 3 لكل نموذج لتجاوز الضغط
                 try:
                     res = client.models.generate_content(
                         model=model_name,
@@ -164,9 +164,11 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
                     print(f"[Kian AgentNet] {model_name} Error: {err_str}")
                     
                     if "503" in err_str:
-                        time.sleep(2)
+                        # إذا كان السيرفر مشغولاً، ننتظر 3 ثوانٍ قبل المحاولة التالية
+                        time.sleep(3)
                         continue
                     else:
+                        # إذا كان الخطأ 404 أو غيره، نتجاوز هذا النموذج وننتقل للذي يليه فوراً
                         break
             
             if response:
@@ -176,7 +178,7 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
             return {
                 "status": "gateway_error",
                 "error_code": "ALL_MODELS_UNAVAILABLE",
-                "message": f"تعذر الاتصال بجميع النماذج. تفاصيل المحاولات: {errors_log}"
+                "message": f"السيرفرات مزدحمة حالياً (503). يرجى المحاولة بعد قليل. تفاصيل: {errors_log}"
             }
         
         structured_payload = json.loads(response.text)
