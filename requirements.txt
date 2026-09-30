@@ -7,5 +7,4 @@ google-genai
 pydantic
 playwright-stealth==1.0.6
 markdownify
-
-
+setuptools
