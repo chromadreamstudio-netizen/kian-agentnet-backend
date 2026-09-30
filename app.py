@@ -41,13 +41,24 @@ def health_check():
     return {
         "status": "online",
         "service": "Kian AgentNet Protocol Engine",
-        "version": "3.0.0 (Stealth & Semantic Markdown Enabled)"
+        "version": "3.0.0 (Stealth & Deep Scraping Enabled)"
     }
 
 def find_price_regex(text: str) -> str | None:
-    match = re.search(r'(\$|USD|EUR|€)\s?(\d+[\.,]\d{2})', text, re.IGNORECASE) or \
-            re.search(r'(\d+[\.,]\d{2})\s?(\$|USD|EUR|€)', text, re.IGNORECASE)
-    return match.group(0) if match else None
+    """متحقق متقدم لاستخراج صيغ الأسعار المختلفة والعملات"""
+    patterns = [
+        r'(?:US\s*|\$|€|£|¥|USD|EUR|GBP|SAR|AED|EGP)\s*(\d{1,5}(?:[\.,]\d{2})?)',
+        r'(\d{1,5}(?:[\.,]\d{2})?)\s*(?:US\s*|\$|€|£|¥|USD|EUR|GBP|SAR|AED|EGP)',
+        r'"(?:actMinPrice|minAmount|formattedAmount|price|salePrice|priceAmount)":"?(\$?[\d\.,]+)"?'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            val = match.group(1) if match.lastindex else match.group(0)
+            clean_val = re.sub(r'[^\d\.,]', '', val)
+            if clean_val:
+                return clean_val
+    return None
 
 def execute_browser_protocol(url: str) -> dict:
     try:
@@ -62,10 +73,14 @@ def execute_browser_protocol(url: str) -> dict:
                 ]
             )
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 viewport={"width": 1920, "height": 1080},
                 locale="en-US",
-                timezone_id="America/New_York"
+                timezone_id="America/New_York",
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+                }
             )
             page = context.new_page()
             
@@ -73,20 +88,35 @@ def execute_browser_protocol(url: str) -> dict:
             stealth.apply_stealth_sync(page)
             
             try:
-                page.goto(url, timeout=45000, wait_until="networkidle")
+                page.goto(url, timeout=45000, wait_until="domcontentloaded")
             except Exception:
-                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                page.goto(url, timeout=30000)
             
+            # التمرير البطئي الشامل لتفعيل السكربتات والـ Lazy Load
             page.evaluate("""
-                const scrollInterval = setInterval(() => { window.scrollBy(0, 500); }, 200);
-                setTimeout(() => { clearInterval(scrollInterval); }, 3000);
+                async () => {
+                    await new Promise((resolve) => {
+                        let totalHeight = 0;
+                        const distance = 400;
+                        const timer = setInterval(() => {
+                            const scrollHeight = document.body.scrollHeight;
+                            window.scrollBy(0, distance);
+                            totalHeight += distance;
+                            if(totalHeight >= scrollHeight || totalHeight > 3000){
+                                clearInterval(timer);
+                                window.scrollTo(0, 0);
+                                resolve();
+                            }
+                        }, 150);
+                    });
+                }
             """)
-            page.wait_for_timeout(4000) 
+            page.wait_for_timeout(3000) 
             
-            html_content = page.content()
+            raw_html = page.content()
             browser.close()
             
-            soup = BeautifulSoup(html_content, "html.parser")
+            soup = BeautifulSoup(raw_html, "html.parser")
             
             meta_data = {}
             for meta in soup.find_all("meta"):
@@ -100,6 +130,15 @@ def execute_browser_protocol(url: str) -> dict:
                 if script.string:
                     json_ld_data.append(script.string.strip())
             
+            # استخراج أسعار أكواد السكربت المخفية في منصات التجزئة قبل تنظيف الـ HTML
+            script_price_snippets = []
+            for script in soup.find_all("script"):
+                stext = script.string or ""
+                if any(k in stext for k in ["runParams", "actMinPrice", "formatedAmount", "skuModule", "priceModule"]):
+                    matches = re.findall(r'("(?:actMinPrice|formatedAmount|minAmount|discountPrice|price)":\s*"?[^"\}]+"?)', stext)
+                    if matches:
+                        script_price_snippets.extend(matches[:10])
+
             for element in soup(["script", "style", "noscript", "svg", "iframe"]):
                 element.extract()
             
@@ -108,9 +147,11 @@ def execute_browser_protocol(url: str) -> dict:
             markdown_text = re.sub(r'\n{3,}', '\n\n', markdown_text).strip()
             
             return {
+                "raw_html": raw_html,
                 "semantic_markdown": markdown_text[:40000],
                 "meta_tags": meta_data,
-                "structured_json_ld": json_ld_data
+                "structured_json_ld": json_ld_data,
+                "script_price_snippets": script_price_snippets
             }
     except Exception as e:
         return {"protocol_error": str(e)}
@@ -141,18 +182,18 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         You are the core intelligence processor of the Kian AgentNet Protocol (V3 Stealth Architecture). 
         Extract structured JSON matching exactly this schema instruction: "{payload.target_schema}"
         
-        CRITICAL RULES:
-        1. Never return null for critical fields like "price" or "product_name" if hints exist in Metadata, JSON-LD or Markdown.
-        2. Clean price fields into numeric values or clean currency strings (e.g., 12.99).
-        
-        Context provided is Semantic Markdown (which preserves tables, lists, and prices next to titles), Metadata, and hidden JSON-LD.
+        CRITICAL EXTRACTION INSTRUCTIONS:
+        1. NEVER return null or empty for "price" if ANY price numeric/currency hint exists in Metadata, Script Price Hints, JSON-LD or Markdown.
+        2. If multiple prices exist, pick the active sale/discount price or lowest min price.
+        3. Return clean price values or formatted numbers.
         
         Metadata: {json.dumps(execution_result["meta_tags"])}
         Hidden JSON-LD: {json.dumps(execution_result.get("structured_json_ld", []))}
+        Script Price Hints: {json.dumps(execution_result.get("script_price_snippets", []))}
         Semantic Markdown Corpus:
         {execution_result["semantic_markdown"]}
         
-        Output strictly valid JSON without any markdown formatting wrappers.
+        Output strictly valid JSON matching target schema without markdown wrappers.
         """
         
         candidate_models = [
@@ -191,18 +232,33 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         
         structured_payload = json.loads(response.text)
         
-        # === حماية الفشل التلقائي لاستخراج السعر ===
+        # === مسار طوارئ رباعي لتصحيح السعر في حال إرجاع null ===
         if isinstance(structured_payload, dict):
             for key, val in list(structured_payload.items()):
                 if "price" in key.lower() and (val is None or str(val).lower() in ["null", "none", ""]):
                     meta_tags = execution_result.get("meta_tags", {})
+                    
+                    # 1. فحص الـ Meta Tags
                     fallback_price = (
                         meta_tags.get("og:price:amount") or 
                         meta_tags.get("product:price:amount") or 
                         meta_tags.get("price") or
-                        meta_tags.get("twitter:data1") or
-                        find_price_regex(execution_result.get("semantic_markdown", ""))
+                        meta_tags.get("twitter:data1")
                     )
+                    
+                    # 2. فحص مقاطع الجافاسكريبت المحقونة
+                    if not fallback_price and execution_result.get("script_price_snippets"):
+                        snippets_text = " ".join(execution_result["script_price_snippets"])
+                        fallback_price = find_price_regex(snippets_text)
+                        
+                    # 3. فحص نص الـ Markdown
+                    if not fallback_price:
+                        fallback_price = find_price_regex(execution_result.get("semantic_markdown", ""))
+                        
+                    # 4. فحص كود الـ HTML الخالص
+                    if not fallback_price:
+                        fallback_price = find_price_regex(execution_result.get("raw_html", ""))
+                        
                     if fallback_price:
                         structured_payload[key] = fallback_price
 
