@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
+from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 import markdownify
 from supabase import create_client, Client
@@ -64,8 +64,9 @@ def execute_browser_protocol(url: str) -> dict:
             )
             page = context.new_page()
             
-            # 1. تفعيل طبقة التخفي لمنع حظر البوتات من مواقع مثل AliExpress
-            stealth_sync(page)
+            # 1. تفعيل طبقة التخفي الحديثة المجهزة لبايثون 3.14
+            stealth = Stealth()
+            stealth.apply_stealth_sync(page)
             
             try:
                 page.goto(url, timeout=45000, wait_until="networkidle")
