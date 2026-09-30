@@ -178,22 +178,52 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         if "protocol_error" in execution_result:
             return {"status": "gateway_error", "message": execution_result["protocol_error"]}
             
+        # === قالب الاستخراج التلقائي الشامل (Ninja Mode) ===
+        default_ecommerce_schema = """
+        {
+            "product_info": {
+                "title": "Full product name",
+                "current_price": "Numeric value only",
+                "original_price": "Numeric value only (if discounted, otherwise null)",
+                "currency": "e.g., USD, EUR",
+                "availability": "In Stock / Out of Stock",
+                "rating": "Product rating out of 5 (if available)",
+                "reviews_count": "Number of reviews (if available)"
+            },
+            "media": {
+                "main_image": "URL of the primary product image",
+                "all_images": ["URL 1", "URL 2"]
+            },
+            "technical_details": {
+                "brand": "Brand name",
+                "specifications": {"key": "value", "material": "steel", "weight": "1kg"}
+            },
+            "variants_available": ["Red", "Blue", "Size M", "Size L"],
+            "description_summary": "A 2-sentence professional summary of the product based on the page content."
+        }
+        """
+
+        # تفعيل القالب الشامل إذا لم يرسل المستخدم طلبات مخصصة دقيقة
+        is_default_payload = payload.target_schema == "Extract core entities, prices, structured specifications, and metadata."
+        actual_schema = default_ecommerce_schema if is_default_payload or len(payload.target_schema) < 30 else payload.target_schema
+
         protocol_prompt = f"""
-        You are the core intelligence processor of the Kian AgentNet Protocol (V3 Stealth Architecture). 
-        Extract structured JSON matching exactly this schema instruction: "{payload.target_schema}"
+        You are Kian AgentNet, an advanced auto-extraction AI.
+        Your task is to extract comprehensive data from the provided context and return it EXACTLY matching the JSON structure below.
         
-        CRITICAL EXTRACTION INSTRUCTIONS:
-        1. NEVER return null or empty for "price" if ANY price numeric/currency hint exists in Metadata, Script Price Hints, JSON-LD or Markdown.
-        2. If multiple prices exist, pick the active sale/discount price or lowest min price.
-        3. Return clean price values or formatted numbers.
+        TARGET JSON STRUCTURE:
+        {actual_schema}
+        
+        CRITICAL INSTRUCTIONS:
+        1. Search deeply in Metadata, JSON-LD, Script variables, and Markdown to fill every field.
+        2. If a specific field is truly not found, return null for it, do not guess.
+        3. ALWAYS return clean, valid JSON without markdown formatting (no ```json).
         
         Metadata: {json.dumps(execution_result["meta_tags"])}
         Hidden JSON-LD: {json.dumps(execution_result.get("structured_json_ld", []))}
         Script Price Hints: {json.dumps(execution_result.get("script_price_snippets", []))}
         Semantic Markdown Corpus:
         {execution_result["semantic_markdown"]}
-        
-        Output strictly valid JSON matching target schema without markdown wrappers.
         """
         
         candidate_models = [
@@ -234,33 +264,34 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         
         # === مسار طوارئ رباعي لتصحيح السعر في حال إرجاع null ===
         if isinstance(structured_payload, dict):
-            for key, val in list(structured_payload.items()):
-                if "price" in key.lower() and (val is None or str(val).lower() in ["null", "none", ""]):
-                    meta_tags = execution_result.get("meta_tags", {})
-                    
-                    # 1. فحص الـ Meta Tags
-                    fallback_price = (
-                        meta_tags.get("og:price:amount") or 
-                        meta_tags.get("product:price:amount") or 
-                        meta_tags.get("price") or
-                        meta_tags.get("twitter:data1")
-                    )
-                    
-                    # 2. فحص مقاطع الجافاسكريبت المحقونة
-                    if not fallback_price and execution_result.get("script_price_snippets"):
-                        snippets_text = " ".join(execution_result["script_price_snippets"])
-                        fallback_price = find_price_regex(snippets_text)
-                        
-                    # 3. فحص نص الـ Markdown
-                    if not fallback_price:
-                        fallback_price = find_price_regex(execution_result.get("semantic_markdown", ""))
-                        
-                    # 4. فحص كود الـ HTML الخالص
-                    if not fallback_price:
-                        fallback_price = find_price_regex(execution_result.get("raw_html", ""))
-                        
-                    if fallback_price:
-                        structured_payload[key] = fallback_price
+            # البحث عن مفتاح السعر في أي مستوى من الاستجابة
+            def fix_price(obj):
+                if isinstance(obj, dict):
+                    for key, val in obj.items():
+                        if "price" in key.lower() and (val is None or str(val).lower() in ["null", "none", ""]):
+                            meta_tags = execution_result.get("meta_tags", {})
+                            fallback_price = (
+                                meta_tags.get("og:price:amount") or 
+                                meta_tags.get("product:price:amount") or 
+                                meta_tags.get("price") or
+                                meta_tags.get("twitter:data1")
+                            )
+                            if not fallback_price and execution_result.get("script_price_snippets"):
+                                snippets_text = " ".join(execution_result["script_price_snippets"])
+                                fallback_price = find_price_regex(snippets_text)
+                            if not fallback_price:
+                                fallback_price = find_price_regex(execution_result.get("semantic_markdown", ""))
+                            if not fallback_price:
+                                fallback_price = find_price_regex(execution_result.get("raw_html", ""))
+                            if fallback_price:
+                                obj[key] = fallback_price
+                        elif isinstance(val, (dict, list)):
+                            fix_price(val)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        fix_price(item)
+            
+            fix_price(structured_payload)
 
         new_credits = current_credits - 1
         supabase.table("api_keys").update({"credits": new_credits}).eq("id", developer_record["id"]).execute()
