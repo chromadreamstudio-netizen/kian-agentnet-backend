@@ -7,13 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 from bs4 import BeautifulSoup
+import markdownify
 from supabase import create_client, Client
 
 app = FastAPI(
     title="Kian AgentNet - Global Agentic Web Protocol",
     description="Foundational Infrastructure for AI-to-Web Interoperability",
-    version="2.0.0"
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -39,7 +41,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Kian AgentNet Protocol Engine",
-        "version": "2.0.0"
+        "version": "3.0.0 (Stealth & Semantic Markdown Enabled)"
     }
 
 def execute_browser_protocol(url: str) -> dict:
@@ -47,24 +49,35 @@ def execute_browser_protocol(url: str) -> dict:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True, 
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                args=[
+                    "--disable-blink-features=AutomationControlled", 
+                    "--no-sandbox", 
+                    "--disable-dev-shm-usage",
+                    "--disable-web-security"
+                ]
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
+                timezone_id="America/New_York"
             )
             page = context.new_page()
             
-            # تقنية متقدمة للتعامل مع المواقع الثقيلة مثل AliExpress
+            # 1. تفعيل طبقة التخفي لمنع حظر البوتات من مواقع مثل AliExpress
+            stealth_sync(page)
+            
             try:
-                # ننتظر حتى تستقر الشبكة (لا يوجد طلبات انترنت جديدة لمدة نصف ثانية)
                 page.goto(url, timeout=45000, wait_until="networkidle")
             except Exception:
-                # إذا استمر الموقع في تحميل إعلانات لا تنتهي، نكتفي بتحميل الواجهة الأساسية
                 page.goto(url, timeout=30000, wait_until="domcontentloaded")
-                
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight/2);")
-            page.wait_for_timeout(3000)
+            
+            # 2. التفاعل الذكي: التمرير ببطء لتحميل الأسعار الديناميكية المخفية (Lazy Load)
+            page.evaluate("""
+                const scrollInterval = setInterval(() => { window.scrollBy(0, 500); }, 200);
+                setTimeout(() => { clearInterval(scrollInterval); }, 3000);
+            """)
+            page.wait_for_timeout(4000) 
             
             html_content = page.content()
             browser.close()
@@ -78,20 +91,21 @@ def execute_browser_protocol(url: str) -> dict:
                 if prop and content:
                     meta_data[str(prop)] = str(content).replace('"', "'")
             
-            # استخراج بيانات JSON-LD (السر وراء جلب الأسعار والمواصفات من المتاجر)
             json_ld_data = []
             for script in soup.find_all("script", type="application/ld+json"):
                 if script.string:
                     json_ld_data.append(script.string.strip())
             
-            for element in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "iframe", "button"]):
+            for element in soup(["script", "style", "noscript", "svg", "iframe"]):
                 element.extract()
             
-            text = soup.get_text(separator=" | ", strip=True)
-            text = re.sub(r'\|\s*\|', '|', text)
+            # 3. التحويل الدلالي: تحويل الصفحة إلى Markdown للحفاظ على علاقة الأسعار بالعناوين
+            clean_html = str(soup.body) if soup.body else str(soup)
+            markdown_text = markdownify.markdownify(clean_html, heading_style="ATX")
+            markdown_text = re.sub(r'\n{3,}', '\n\n', markdown_text).strip()
             
             return {
-                "raw_dom_text": text[:15000],
+                "semantic_markdown": markdown_text[:40000],
                 "meta_tags": meta_data,
                 "structured_json_ld": json_ld_data
             }
@@ -121,15 +135,19 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
             return {"status": "gateway_error", "message": execution_result["protocol_error"]}
             
         protocol_prompt = f"""
-        You are the core intelligence processor of the Kian AgentNet Protocol. 
-        Extract structured JSON matching: "{payload.target_schema}"
+        You are the core intelligence processor of the Kian AgentNet Protocol (V3 Stealth Architecture). 
+        Extract structured JSON matching exactly this schema instruction: "{payload.target_schema}"
+        
+        Context provided is Semantic Markdown (which preserves tables, lists, and prices next to titles), Metadata, and hidden JSON-LD.
+        
         Metadata: {json.dumps(execution_result["meta_tags"])}
         Hidden JSON-LD: {json.dumps(execution_result.get("structured_json_ld", []))}
-        Text: {execution_result["raw_dom_text"]}
-        Output strictly valid JSON.
+        Semantic Markdown Corpus:
+        {execution_result["semantic_markdown"]}
+        
+        Output strictly valid JSON without any markdown formatting wrappers.
         """
         
-        # الاعتماد حصرياً على نماذج 3.x كما طلبنا وكما أثبتت كفاءتها
         candidate_models = [
             'gemini-3.8-flash',
             'gemini-3.6-flash',

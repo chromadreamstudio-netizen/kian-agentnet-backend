@@ -5,3 +5,7 @@ beautifulsoup4
 supabase
 google-genai
 pydantic
+playwright-stealth
+markdownify
+
+
