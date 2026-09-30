@@ -5,7 +5,7 @@ beautifulsoup4
 supabase
 google-genai
 pydantic
-playwright-stealth
+playwright-stealth==1.0.6
 markdownify
 
 
