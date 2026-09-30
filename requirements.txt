@@ -7,3 +7,5 @@ google-genai
 pydantic
 playwright-stealth
 markdownify
+requests
+google-generativeai

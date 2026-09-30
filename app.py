@@ -44,6 +44,11 @@ def health_check():
         "version": "3.0.0 (Stealth & Semantic Markdown Enabled)"
     }
 
+def find_price_regex(text: str) -> str | None:
+    match = re.search(r'(\$|USD|EUR|€)\s?(\d+[\.,]\d{2})', text, re.IGNORECASE) or \
+            re.search(r'(\d+[\.,]\d{2})\s?(\$|USD|EUR|€)', text, re.IGNORECASE)
+    return match.group(0) if match else None
+
 def execute_browser_protocol(url: str) -> dict:
     try:
         with sync_playwright() as p:
@@ -64,7 +69,6 @@ def execute_browser_protocol(url: str) -> dict:
             )
             page = context.new_page()
             
-            # 1. تفعيل طبقة التخفي الحديثة المجهزة لبايثون 3.14
             stealth = Stealth()
             stealth.apply_stealth_sync(page)
             
@@ -73,7 +77,6 @@ def execute_browser_protocol(url: str) -> dict:
             except Exception:
                 page.goto(url, timeout=30000, wait_until="domcontentloaded")
             
-            # 2. التفاعل الذكي: التمرير ببطء لتحميل الأسعار الديناميكية المخفية (Lazy Load)
             page.evaluate("""
                 const scrollInterval = setInterval(() => { window.scrollBy(0, 500); }, 200);
                 setTimeout(() => { clearInterval(scrollInterval); }, 3000);
@@ -100,7 +103,6 @@ def execute_browser_protocol(url: str) -> dict:
             for element in soup(["script", "style", "noscript", "svg", "iframe"]):
                 element.extract()
             
-            # 3. التحويل الدلالي: تحويل الصفحة إلى Markdown للحفاظ على علاقة الأسعار بالعناوين
             clean_html = str(soup.body) if soup.body else str(soup)
             markdown_text = markdownify.markdownify(clean_html, heading_style="ATX")
             markdown_text = re.sub(r'\n{3,}', '\n\n', markdown_text).strip()
@@ -138,6 +140,10 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
         protocol_prompt = f"""
         You are the core intelligence processor of the Kian AgentNet Protocol (V3 Stealth Architecture). 
         Extract structured JSON matching exactly this schema instruction: "{payload.target_schema}"
+        
+        CRITICAL RULES:
+        1. Never return null for critical fields like "price" or "product_name" if hints exist in Metadata, JSON-LD or Markdown.
+        2. Clean price fields into numeric values or clean currency strings (e.g., 12.99).
         
         Context provided is Semantic Markdown (which preserves tables, lists, and prices next to titles), Metadata, and hidden JSON-LD.
         
@@ -184,6 +190,22 @@ def gateway_execute(payload: ProtocolRequest, x_api_key: str = Header(None)):
             return {"status": "gateway_error", "message": "All models are currently overloaded. Please try again."}
         
         structured_payload = json.loads(response.text)
+        
+        # === حماية الفشل التلقائي لاستخراج السعر ===
+        if isinstance(structured_payload, dict):
+            for key, val in list(structured_payload.items()):
+                if "price" in key.lower() and (val is None or str(val).lower() in ["null", "none", ""]):
+                    meta_tags = execution_result.get("meta_tags", {})
+                    fallback_price = (
+                        meta_tags.get("og:price:amount") or 
+                        meta_tags.get("product:price:amount") or 
+                        meta_tags.get("price") or
+                        meta_tags.get("twitter:data1") or
+                        find_price_regex(execution_result.get("semantic_markdown", ""))
+                    )
+                    if fallback_price:
+                        structured_payload[key] = fallback_price
+
         new_credits = current_credits - 1
         supabase.table("api_keys").update({"credits": new_credits}).eq("id", developer_record["id"]).execute()
         
